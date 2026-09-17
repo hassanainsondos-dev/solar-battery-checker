@@ -1,8 +1,49 @@
 import streamlit as st
 
-st.header("📊 أولاً: الحسابات والتشخيص اليدوي")
+st.header("Calculations - الحسابات والتشخيص")
 
-tab1, tab2 = st.tabs(["⚡ فحص اللوح الشمسي", "🔋 فحص البطارية"])
+tab1, tab2 = st.tabs(["Solar Panel - فحص اللوح الشمسي", "Battery - فحص البطارية"])
+
+# =========================================================
+# قاعدة بيانات مرجعية مبسطة
+# =========================================================
+
+SOLAR_PANELS = {
+    "Generic 100W (default example)": {
+        "voc_rated": 22.0, "isc_rated": 6.0, "pmax_rated": 100.0,
+        "alpha": 0.05, "beta": -0.29,
+    },
+    "Jinko Solar 450W": {
+        "voc_rated": 49.5, "isc_rated": 11.62, "pmax_rated": 450.0,
+        "alpha": 0.05, "beta": -0.29,
+    },
+    "Longi 445W": {
+        "voc_rated": 49.9, "isc_rated": 11.36, "pmax_rated": 445.0,
+        "alpha": 0.045, "beta": -0.28,
+    },
+    "Canadian Solar 340W": {
+        "voc_rated": 46.3, "isc_rated": 9.46, "pmax_rated": 340.0,
+        "alpha": 0.04, "beta": -0.30,
+    },
+    "غير ذلك / إدخال يدوي": None,
+}
+
+BATTERIES = {
+    "Lithium-ion 100Ah (default example)": {
+        "r_new": 10.0, "cycles_rated": 2000,
+    },
+    "Lead-acid 100Ah": {
+        "r_new": 6.0, "cycles_rated": 500,
+    },
+    "غير ذلك / إدخال يدوي": None,
+}
+
+WEATHER_TO_IRRADIANCE = {
+    "Sunny and clear - شمس صافية": 1000,
+    "Partly cloudy - غائم جزئياً": 600,
+    "Mostly cloudy - غائم كتير": 300,
+}
+
 
 # =========================================================
 # دوال الحساب - اللوح الشمسي
@@ -10,7 +51,6 @@ tab1, tab2 = st.tabs(["⚡ فحص اللوح الشمسي", "🔋 فحص الب�
 
 def correct_to_stc(v_oc, i_sc, temp_meas, irradiance_meas,
                     alpha, beta, temp_ref=25, irradiance_ref=1000):
-    """تصحيح Voc و Isc المقاسين ليصبحا مكافئين لظروف STC (25°C, 1000 W/m2)"""
     delta_t = temp_meas - temp_ref
     voc_stc = v_oc / (1 + (beta / 100) * delta_t)
     isc_stc = i_sc * (irradiance_ref / irradiance_meas) / (1 + (alpha / 100) * delta_t)
@@ -18,36 +58,35 @@ def correct_to_stc(v_oc, i_sc, temp_meas, irradiance_meas,
 
 
 def get_solar_probable_causes(voc_ratio, isc_ratio, fill_factor):
-    """ترجيح الاحتمالات حسب نمط انحراف Voc و Isc و FF عن القيم المرجعية"""
     scores = {
-        "تظليل جزئي أو اتساخ على سطح اللوح": 0,
-        "تشققات دقيقة في الخلايا (Micro-cracks)": 0,
-        "عطل في دايود التمرير أو انقطاع بالتوصيل": 0,
-        "مقاومة توالي عالية (لحام / وصلات ضعيفة)": 0,
-        "تدهور طبيعي مرتبط بعمر اللوح": 0,
+        "Shading or dirt on the panel surface - تظليل جزئي أو اتساخ على السطح": 0,
+        "Micro-cracks in the cells - تشققات دقيقة في الخلايا": 0,
+        "Bypass diode fault / open connection - عطل دايود التمرير أو انقطاع": 0,
+        "High series resistance / bad soldering - مقاومة توالي عالية": 0,
+        "Normal aging - تدهور طبيعي مرتبط بالعمر": 0,
     }
 
     if isc_ratio < 0.90 and voc_ratio >= 0.95:
-        scores["تظليل جزئي أو اتساخ على سطح اللوح"] += 3
-        scores["تشققات دقيقة في الخلايا (Micro-cracks)"] += 1
+        scores["Shading or dirt on the panel surface - تظليل جزئي أو اتساخ على السطح"] += 3
+        scores["Micro-cracks in the cells - تشققات دقيقة في الخلايا"] += 1
 
     if voc_ratio < 0.85 and isc_ratio >= 0.90:
-        scores["عطل في دايود التمرير أو انقطاع بالتوصيل"] += 3
+        scores["Bypass diode fault / open connection - عطل دايود التمرير أو انقطاع"] += 3
 
     if voc_ratio >= 0.90 and isc_ratio >= 0.90 and fill_factor < 0.65:
-        scores["مقاومة توالي عالية (لحام / وصلات ضعيفة)"] += 3
+        scores["High series resistance / bad soldering - مقاومة توالي عالية"] += 3
 
     if isc_ratio < 0.90 and fill_factor < 0.70:
-        scores["تشققات دقيقة في الخلايا (Micro-cracks)"] += 2
+        scores["Micro-cracks in the cells - تشققات دقيقة في الخلايا"] += 2
 
     if 0.85 <= voc_ratio < 0.95 and 0.85 <= isc_ratio < 0.95:
-        scores["تدهور طبيعي مرتبط بعمر اللوح"] += 2
+        scores["Normal aging - تدهور طبيعي مرتبط بالعمر"] += 2
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     ranked = [item for item in ranked if item[1] > 0]
 
     if not ranked:
-        ranked = [("سبب غير محدد بوضوح - يُنصح بفحص بصري شامل", 1)]
+        ranked = [("Unclear cause - يُنصح بفحص بصري شامل", 1)]
 
     return ranked
 
@@ -62,26 +101,26 @@ def calculate_soh(r_int, r_new):
 
 def get_battery_probable_causes(r_ratio, cycle_ratio):
     scores = {
-        "التملح (Sulfation) بسبب الشحن الجزئي المتكرر": 0,
-        "نهاية العمر الافتراضي الطبيعي (تجاوز عدد الدورات)": 0,
-        "خلية ضعيفة أو مشكلة في الوصلات الداخلية": 0,
+        "Sulfation from repeated partial charging - التملح": 0,
+        "Normal end of life - نهاية العمر الافتراضي الطبيعي": 0,
+        "Weak cell or internal connection issue - خلية ضعيفة": 0,
     }
 
     if r_ratio > 1.5 and cycle_ratio < 0.8:
-        scores["التملح (Sulfation) بسبب الشحن الجزئي المتكرر"] += 3
-        scores["خلية ضعيفة أو مشكلة في الوصلات الداخلية"] += 1
+        scores["Sulfation from repeated partial charging - التملح"] += 3
+        scores["Weak cell or internal connection issue - خلية ضعيفة"] += 1
 
     if cycle_ratio >= 0.8:
-        scores["نهاية العمر الافتراضي الطبيعي (تجاوز عدد الدورات)"] += 3
+        scores["Normal end of life - نهاية العمر الافتراضي الطبيعي"] += 3
 
     if r_ratio > 2.0 and cycle_ratio < 0.4:
-        scores["خلية ضعيفة أو مشكلة في الوصلات الداخلية"] += 2
+        scores["Weak cell or internal connection issue - خلية ضعيفة"] += 2
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     ranked = [item for item in ranked if item[1] > 0]
 
     if not ranked:
-        ranked = [("سبب غير محدد بوضوح - يُنصح بفحص إضافي", 1)]
+        ranked = [("Unclear cause - يُنصح بفحص إضافي", 1)]
 
     return ranked
 
@@ -91,36 +130,54 @@ def get_battery_probable_causes(r_ratio, cycle_ratio):
 # =========================================================
 
 with tab1:
-    st.subheader("إدخال القراءات المقاسة للوح الشمسي")
+    st.subheader("Step 1 - اختر موديل اللوح")
+    panel_choice = st.selectbox("Panel model - موديل اللوح", list(SOLAR_PANELS.keys()))
 
-    st.markdown("**القراءات الميدانية (اللي بتقيسيها بنفسك):**")
+    if SOLAR_PANELS[panel_choice] is None:
+        st.info("أدخل القيم يدوياً من ملصق اللوح (خلف اللوح) أو من الداتاشيت")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            pmax_rated = st.number_input("Rated Pmax (Watt) - القدرة الاسمية", value=100.0)
+            voc_rated = st.number_input("Rated Voc (Volt) - من الملصق", value=22.0)
+        with col_r2:
+            isc_rated = st.number_input("Rated Isc (Ampere) - من الملصق", value=6.0)
+            has_coeffs = st.checkbox("عندي معاملات الحرارة من الداتاشيت الكامل")
+        if has_coeffs:
+            alpha = st.number_input("Alpha - معامل حرارة التيار (%/C)", value=0.05, format="%.3f")
+            beta = st.number_input("Beta - معامل حرارة الجهد (%/C)", value=-0.29, format="%.3f")
+        else:
+            alpha, beta = 0.05, -0.29
+            st.caption("تم استخدام قيم افتراضية شائعة للألواح السيليكونية (Alpha=0.05, Beta=-0.29)")
+    else:
+        ref = SOLAR_PANELS[panel_choice]
+        pmax_rated = ref["pmax_rated"]
+        voc_rated = ref["voc_rated"]
+        isc_rated = ref["isc_rated"]
+        alpha = ref["alpha"]
+        beta = ref["beta"]
+        st.caption(f"Rated values - القيم المرجعية: Pmax={pmax_rated}W, Voc={voc_rated}V, Isc={isc_rated}A")
+
+    st.markdown("---")
+    st.subheader("Step 2 - أدخل القراءات اللي قسّتها بنفسك")
+
     col1, col2 = st.columns(2)
     with col1:
-        v_oc = st.number_input("فولتية الدارة المفتوحة Voc (Volt)", value=21.0)
-        i_sc = st.number_input("تيار القصر Isc (Ampere)", value=5.5)
-        v_mp = st.number_input("فولتية أقصى قدرة Vmp (Volt)", value=17.5)
-        i_mp = st.number_input("تيار أقصى قدرة Imp (Ampere)", value=5.1)
+        v_oc = st.number_input("Measured Voc (Volt) - فولتية الدارة المفتوحة", value=21.0)
+        i_sc = st.number_input("Measured Isc (Ampere) - تيار القصر", value=5.5)
+        v_mp = st.number_input("Measured Vmp (Volt) - فولتية أقصى قدرة", value=17.5)
+        i_mp = st.number_input("Measured Imp (Ampere) - تيار أقصى قدرة", value=5.1)
     with col2:
-        temp_meas = st.number_input("درجة حرارة اللوح أثناء القياس (°C)", value=45.0)
-        irradiance_meas = st.number_input("شدة الإشعاع أثناء القياس (W/m²)", value=800.0)
+        weather = st.selectbox("Weather condition while measuring - حالة الطقس أثناء القياس",
+                                list(WEATHER_TO_IRRADIANCE.keys()))
+        irradiance_meas = WEATHER_TO_IRRADIANCE[weather]
+        temp_meas = st.number_input("Air temperature (C) - درجة حرارة الجو", value=30.0)
+        st.caption("درجة حرارة الجو تقدر تاخذها من أي تطبيق طقس بالموبايل")
 
-    st.markdown("**القيم المدونة على ملصق اللوح / الداتاشيت:**")
-    col3, col4 = st.columns(2)
-    with col3:
-        p_rated = st.number_input("القدرة الاسمية Pmax (Watt)", value=100.0)
-        voc_rated = st.number_input("Voc المدون على الداتاشيت (Volt)", value=22.0)
-        isc_rated = st.number_input("Isc المدون على الداتاشيت (Ampere)", value=6.0)
-    with col4:
-        alpha = st.number_input("معامل حرارة التيار α (%/°C)", value=0.05, format="%.3f")
-        beta = st.number_input("معامل حرارة الجهد β (%/°C)", value=-0.29, format="%.3f")
-
-    if st.button("تشخيص حالة اللوح"):
-        # الخطوة 1: تصحيح القراءات لظروف STC
+    if st.button("Diagnose Panel - تشخيص حالة اللوح", type="primary"):
         voc_stc, isc_stc = correct_to_stc(v_oc, i_sc, temp_meas, irradiance_meas, alpha, beta)
 
-        # الخطوة 2: حساب القدرة الفعلية والكفاءة ومعامل الملء
         p_measured = v_mp * i_mp
-        eff = (p_measured / p_rated) * 100 if p_rated > 0 else 0
+        eff = (p_measured / pmax_rated) * 100 if pmax_rated > 0 else 0
         fill_factor = p_measured / (voc_stc * isc_stc) if (voc_stc * isc_stc) > 0 else 0
 
         voc_ratio = voc_stc / voc_rated if voc_rated > 0 else 0
@@ -128,20 +185,18 @@ with tab1:
 
         st.divider()
         col_a, col_b, col_c = st.columns(3)
-        col_a.metric("القدرة المقاسة الفعلية", f"{p_measured:.2f} W")
-        col_b.metric("نسبة الكفاءة الحالية", f"{eff:.1f}%")
-        col_c.metric("معامل الملء (FF)", f"{fill_factor:.3f}")
-        st.caption(f"Voc بعد تصحيح STC: {voc_stc:.2f} V  |  Isc بعد تصحيح STC: {isc_stc:.2f} A")
+        col_a.metric("Measured power - القدرة الفعلية", f"{p_measured:.2f} W")
+        col_b.metric("Efficiency - الكفاءة", f"{eff:.1f}%")
+        col_c.metric("Fill Factor - معامل الملء", f"{fill_factor:.3f}")
 
-        # الخطوة 3: القرار - 3 مستويات
         if eff >= 80:
-            st.success("✅ حالة اللوح: ممتازة / جيدة جداً - الكفاءة ضمن المدى الطبيعي")
+            st.success("Excellent condition - حالة ممتازة / جيدة جداً")
         elif 65 <= eff < 80:
-            st.warning("⚠️ تحذير مبكر: بداية تراجع بسيط في الأداء - يُنصح بالمتابعة والتنظيف")
+            st.warning("Early warning - تحذير مبكر: بداية تراجع بسيط بالأداء")
         else:
-            st.error("❌ انخفاض واضح في الكفاءة")
+            st.error("Significant efficiency drop - انخفاض واضح في الكفاءة")
             causes = get_solar_probable_causes(voc_ratio, isc_ratio, fill_factor)
-            st.write("**الاحتمالات المرجّحة لسبب الانخفاض:**")
+            st.write("**Most likely causes - الاحتمالات المرجّحة:**")
             for i, (cause, score) in enumerate(causes, start=1):
                 st.write(f"{i}. {cause}")
 
@@ -151,32 +206,45 @@ with tab1:
 # =========================================================
 
 with tab2:
-    st.subheader("إدخال قراءات البطارية المقاسة")
+    st.subheader("Step 1 - اختر نوع البطارية")
+    battery_choice = st.selectbox("Battery type - نوع البطارية", list(BATTERIES.keys()))
+
+    if BATTERIES[battery_choice] is None:
+        st.info("أدخل القيم يدوياً من ملصق البطارية أو الداتاشيت")
+        r_new = st.number_input("Internal resistance when new (mOhm) - المقاومة وهي جديدة", value=10.0)
+        cycles_rated = st.number_input("Rated cycle life - عدد الدورات المتوقع", min_value=1, value=500)
+    else:
+        ref = BATTERIES[battery_choice]
+        r_new = ref["r_new"]
+        cycles_rated = ref["cycles_rated"]
+        st.caption(f"Rated values - القيم المرجعية: R_new={r_new} mOhm, Cycles={cycles_rated}")
+
+    st.markdown("---")
+    st.subheader("Step 2 - أدخل القراءات الحالية")
 
     col1_b, col2_b = st.columns(2)
     with col1_b:
-        r_int = st.number_input("المقاومة الداخلية المقاسة (mΩ)", value=25.0)
-        r_new = st.number_input("المقاومة الداخلية للبطارية وهي جديدة (mΩ)", value=10.0)
+        r_int = st.number_input("Measured internal resistance (mOhm) - المقاومة الحالية", value=25.0)
     with col2_b:
-        cycles = st.number_input("عدد دورات الشحن حتى الآن", min_value=0, value=300)
-        cycles_rated = st.number_input("عدد الدورات المتوقع من الداتاشيت", min_value=1, value=500)
+        cycles = st.number_input("Number of charge cycles so far - عدد دورات الشحن حتى الآن",
+                                   min_value=0, value=300)
 
-    if st.button("حساب صحة البطارية (SoH)"):
+    if st.button("Calculate SoH - حساب صحة البطارية", type="primary"):
         soh = calculate_soh(r_int, r_new)
         r_ratio = r_int / r_new if r_new > 0 else 1
         cycle_ratio = cycles / cycles_rated if cycles_rated > 0 else 0
 
         st.divider()
-        st.metric(label="حالة صحة البطارية (SoH)", value=f"{soh:.1f}%")
-        st.caption(f"عدد الدورات: {cycles} من أصل {cycles_rated} دورة متوقعة")
+        st.metric("State of Health (SoH) - حالة الصحة", f"{soh:.1f}%")
+        st.caption(f"Cycles used - عدد الدورات المستخدمة: {cycles} of {cycles_rated}")
 
         if soh >= 80:
-            st.success("✅ البطارية بحالة ممتازة")
+            st.success("Excellent condition - بحالة ممتازة")
         elif 65 <= soh < 80:
-            st.warning("⚠️ تحذير مبكر: بداية تراجع بالكفاءة - يُنصح بالمتابعة الدورية")
+            st.warning("Early warning - تحذير مبكر: بداية تراجع بالكفاءة")
         else:
-            st.error("❌ انخفاض واضح في حالة الصحة")
+            st.error("Significant health drop - انخفاض واضح في حالة الصحة")
             causes = get_battery_probable_causes(r_ratio, cycle_ratio)
-            st.write("**الاحتمالات المرجّحة لسبب الانخفاض:**")
+            st.write("**Most likely causes - الاحتمالات المرجّحة:**")
             for i, (cause, score) in enumerate(causes, start=1):
                 st.write(f"{i}. {cause}")
